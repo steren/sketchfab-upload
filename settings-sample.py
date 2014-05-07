@@ -1,0 +1,4 @@
+SECRET_KEY = ''
+DROPBOX_KEY = ''
+DROPBOX_SECRET = ''
+DROPBOX_ACCESS_TYPE = 'app_folder'
