@@ -3,7 +3,7 @@
 # Import the Flask Framework and modules
 from flask import Flask
 from flask.ext.dropbox import Dropbox, DropboxBlueprint
-from flask import url_for, redirect, request
+from flask import url_for, redirect, request, render_template
 from flask import g, request, session as flask_session, url_for
 
 # Google NDB
@@ -37,6 +37,7 @@ class User(ndb.Model):
   dropbox_email = ndb.StringProperty()
   dropbox_token = ndb.StringProperty()
   dropbox_cursor = ndb.StringProperty()
+  sketchfab_api_token = ndb.StringProperty()
   created_date = ndb.DateTimeProperty(auto_now_add=True)
   last_login_date = ndb.DateTimeProperty()
   last_check_date = ndb.DateTimeProperty()
@@ -52,9 +53,10 @@ class Upload(ndb.Model):
 
 @app.route('/')
 def home():
-    # return render_template('home.html', authenticated=dropbox.is_authenticated)
-    return u'Click <a href="%s">here</a> to login with Dropbox.' % \
-           dropbox.login_url
+    return render_template('home.html',
+                authenticated=dropbox.is_authenticated,
+                login_url = dropbox.login_url,
+                logout_url = dropbox.logout_url)
 
 @app.route('/welcome')
 def welcome():
@@ -77,10 +79,28 @@ def welcome():
                     last_login_date = datetime.datetime.now())
     user.put()
 
-    return u'<form action="" method="post">' \
-           u'<input name="sketchfabapi" type="text">' \
-           u'<input type="submit" value="Send">' \
-           u'</form>'
+    return render_template('welcome.html')
+
+@app.route('/sketchfabtoken', methods=('GET', 'POST'))
+def sketchfabtoken():
+    if request.method == 'POST':
+        logger.info('got sketchfab API token')
+        token = request.form['sketchfabapi']
+        uid = dropbox.account_info['uid']
+        user = User.query(User.dropbox_uid == uid).get()
+        if user:
+            user.populate(sketchfab_api_token = token)
+            user.put()
+            return redirect(url_for('done'))
+        else:
+            logger.error(u'user %s not found' % uid)
+            return 'Sorry, user cannot be found', 500
+
+    return redirect(url_for('home'))
+
+@app.route('/done')
+def done():
+    return render_template('done.html')
 
 
 @app.route('/success/<path:filename>')
@@ -112,7 +132,13 @@ def upload():
             result = client.put_file('/' + filename, file_obj.read())
             logger.info('File put')
 
-            path = result['path'].lstrip('/')
+            path = result['path']
+
+            # Test store something as an "upload"
+            upload = Upload(dropbox_path=path,
+                        sketchfab_model_id = "testmodelID")
+            upload.put()
+
             return redirect(url_for('success', filename=path))
 
     logger.info('Display upload form')

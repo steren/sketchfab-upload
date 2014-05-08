@@ -1,0 +1,29 @@
+{% extends 'layout.html' %}
+{% block content %}
+
+<div class="jumbotron">
+  <h1>Sketchfab Dropbox uploader</h1>
+  <p class="lead">Automatically upload your models saved in your Dropbox to Sketchfab.</p>
+
+  {% if not authenticated %}
+  <p><a class="btn btn-lg btn-primary" href="{{ login_url }}" role="button">Connect with Dropbox</a></p>
+  {% endif %}
+  {% if authenticated %}
+  <p><a class="btn btn-default" href="{{ logout_url }}" role="button">Logout</a></p>
+  {% endif %}
+
+</div>
+
+<div class="row marketing">
+  <div class="col-lg-6">
+    <h4>Automatic</h4>
+    <p>Once configured, every model you put in your Sketchfab Dropbox folder will be automatically uploaded to Sketchfab</p>
+  </div>
+
+  <div class="col-lg-6">
+    <h4>Seemless update</h4>
+    <p>Just replace your model file by a new model file to update your model on Sketchfab.</p>
+  </div>
+</div>
+
+{% endblock %}
