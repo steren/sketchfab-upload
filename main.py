@@ -9,11 +9,17 @@ from flask import g, request, session as flask_session, url_for
 # Google NDB
 from google.appengine.ext import ndb
 
+# Google Cloud Storage
+import cloudstorage as gcs
+from google.appengine.api import app_identity
+
+# App engine specific urlfetch
+from google.appengine.api import urlfetch
+
 # utilities
 import datetime
 from poster.encode import multipart_encode
 from poster.streaminghttp import register_openers
-import urllib2
 import json
 import base64
 import os
@@ -41,6 +47,8 @@ app.config.from_object(settings)
 
 dropbox = Dropbox(app)
 dropbox.register_blueprint(url_prefix='/dropbox')
+
+register_openers()
 
 # Models
 class User(ndb.Model):
@@ -167,7 +175,8 @@ def upload():
 # temporary endpoint to check for new models
 @app.route('/checkdropbox')
 def checkdropbox():
-    register_openers()
+    bucket_name = os.environ.get('BUCKET_NAME', app_identity.get_default_gcs_bucket_name())
+    bucket = '/' + bucket_name
 
     users = User.query().order(-User.last_check_date).fetch(100)
 
@@ -181,10 +190,10 @@ def checkdropbox():
 
         client = DropboxClient(session)
         # cursor keeps track of satte of files, everything we will get from this API is new and should be imported
-        deltas = client.delta()
-        #deltas = client.delta(user.dropbox_cursor)
+        #deltas = client.delta()
+        deltas = client.delta(user.dropbox_cursor)
 
-        logger.info('got deltas')
+        logger.info('Got response from Dropbox, number of deltas: %s' % len(deltas["entries"]))
 
         # store the cursor of the files states and update check date.
         user.populate(dropbox_cursor = deltas["cursor"], last_check_date = datetime.datetime.now())
@@ -204,35 +213,46 @@ def checkdropbox():
 
                 os.path.basename(delta[0])
                 name, extension = os.path.splitext(os.path.basename(delta[0]))
-                """
-                An App Engine application cannot:
-                write to the filesystem. Applications must use the App Engine datastore for storing persistent data. Reading from the filesystem is allowed, and all application files uploaded with the application are available.
-                open a socket or access another host directly. An application can use the App Engine URL fetch service to make HTTP and HTTPS requests to other hosts on ports 80 and 443, respectively.
-                """
-                """
-                logger.info(u"Downloading file to local server")
-                target_path = "/" + uuid.uuid4().hex + extension
-                logger.info(u"Dropbox - Downloading file to path: %s" % (target_path))
-                out = open(target_path, 'wb+')
-                f = client.get_file(delta[0]).read()
-                out.write(f)
-                out.close()
 
-                logger.info(u"Uploading model to Sketchfab's API")
+                filename = uuid.uuid4().hex + extension
+                full_file_path = bucket + '/' + filename
+
+                logger.info(u"Storing file %s to Google Cloud Storage" % full_file_path)
+                gcs_file = gcs.open(full_file_path, 'w')
+                f = client.get_file(delta[0]).read()
+                gcs_file.write(f)
+                gcs_file.close()
+
+                logger.info(u"Uploading model to Sketchfab's API, using token %s" % user.sketchfab_api_token)
                 url="https://api.sketchfab.com/v1/models"
                 data = {
                     'title': name,
                     'description': 'uploaded from Sketchfab-Dropbox',
-                    'fileModel': open(path+filename),
-                    'filenameModel': name,
+                    'fileModel': gcs.open(full_file_path),
+                    'filenameModel': filename,
                     'token': user.sketchfab_api_token
                 }
+                # TODO: if existing model ID, we should update the model, using a PUT request?
+
                 datamulti, headers = multipart_encode(data)
-                upload_request = urllib2.Request(url, datamulti, headers)
-                urllib2.urlopen(upload_req).read()
-                """
-                upload.populate(updatedDate = datetime.datetime.now())
-                upload.put()
+
+                # FIXME we have issue with request size limitation : request size	10 megabytes, see https://developers.google.com/appengine/docs/python/urlfetch/#Python_Quotas_and_limits
+                # we may need to use sockets, see https://developers.google.com/appengine/docs/python/sockets/#making_httplib_use_sockets
+
+                response = urlfetch.fetch(url=url,
+                              payload="".join(datamulti),
+                              method=urlfetch.POST,
+                              headers=headers)
+
+                logger.info(u"response: code: %s content: %s" % (response.status_code, response.content))
+
+                if response.status_code == 200:
+                    response_json = json.loads(response.content)
+                    # TODO check result.success
+                    logger.info(u"saving sketchfab model with id %s" % response_json['result']['id'])
+                    upload.populate(sketchfab_model_id = response_json['result']['id'])
+                    upload.populate(updatedDate = datetime.datetime.now())
+                    upload.put()
 
     return 'Aaaannnnnd done'
 
