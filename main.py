@@ -128,50 +128,6 @@ def done():
     return render_template('done.html')
 
 
-@app.route('/success/<path:filename>')
-def success(filename):
-
-    return u'File successfully uploaded as /%s' % filename
-
-@app.route('/upload', methods=('GET', 'POST'))
-def upload():
-    logger.info('Upload called')
-
-    if not dropbox.is_authenticated:
-        logger.info('Not logged')
-        return redirect(url_for('home'))
-
-    if request.method == 'POST':
-        logger.info('POST received')
-        logger.info(request.method)
-        file_obj = request.files['file']
-        logger.info('got file?')
-
-        if file_obj:
-            logger.info('got file')
-            client = dropbox.client
-            filename = file_obj.filename
-            logger.info(filename)
-
-            # Actual uploading process
-            result = client.put_file('/' + filename, file_obj.read())
-            logger.info('File put')
-
-            path = result['path']
-
-            # Test store something as an "upload"
-            upload = Upload(dropbox_path=path,
-                        sketchfab_model_id = "testmodelID")
-            upload.put()
-
-            return redirect(url_for('success', filename=path))
-
-    logger.info('Display upload form')
-    return u'<form action="" method="post" enctype="multipart/form-data">' \
-           u'<input name="file" type="file">' \
-           u'<input type="submit" value="Upload">' \
-           u'</form>'
-
 # temporary endpoint to check for new models
 @app.route('/checkdropbox')
 def checkdropbox():
